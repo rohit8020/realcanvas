@@ -21,6 +21,8 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
   const currentDrawingIdRef = useRef<string | null>(null);
   const [arrowStart, setArrowStart] = useState<{ x: number; y: number } | null>(null);
   const [arrowEnd, setArrowEnd] = useState<{ x: number; y: number } | null>(null);
+  const [shapeStart, setShapeStart] = useState<{ x: number; y: number } | null>(null);
+  const [shapeEnd, setShapeEnd] = useState<{ x: number; y: number } | null>(null);
 
   const objects = useBoardStore((state) => state.objects);
   const selectedObjectId = useBoardStore((state) => state.selectedObjectId);
@@ -74,6 +76,10 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
       // Start arrow drawing
       setArrowStart({ x: pos.x, y: pos.y });
       setArrowEnd({ x: pos.x, y: pos.y });
+    } else if (currentTool === 'rect' || currentTool === 'ellipse') {
+      // Start rectangle or ellipse drawing with preview
+      setShapeStart({ x: pos.x, y: pos.y });
+      setShapeEnd({ x: pos.x, y: pos.y });
     }
   };
 
@@ -102,6 +108,9 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
     } else if (currentTool === 'arrow' && arrowStart) {
       // Update arrow end point while dragging
       setArrowEnd({ x: pos.x, y: pos.y });
+    } else if ((currentTool === 'rect' || currentTool === 'ellipse') && shapeStart) {
+      // Update shape end point while dragging (preview)
+      setShapeEnd({ x: pos.x, y: pos.y });
     }
   };
 
@@ -143,41 +152,56 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
       addObject(arrowObject);
       setArrowStart(null);
       setArrowEnd(null);
-    } else if (currentTool === 'rect') {
-      const stage = e.target.getStage();
-      if (!stage) return;
-
-      // Create a temporary rect to get dimensions
-      const startPos = { x: pos.x - 50, y: pos.y - 50 };
-      const rectObject: RectObject = {
-        id: uuidv4(),
-        type: 'rect',
-        userId,
-        x: startPos.x,
-        y: startPos.y,
-        width: 100,
-        height: 100,
-        stroke: currentColor,
-        strokeWidth,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      addObject(rectObject);
-    } else if (currentTool === 'ellipse') {
-      const ellipseObject: EllipseObject = {
-        id: uuidv4(),
-        type: 'ellipse',
-        userId,
-        x: pos.x,
-        y: pos.y,
-        radiusX: 50,
-        radiusY: 50,
-        stroke: currentColor,
-        strokeWidth,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      addObject(ellipseObject);
+    } else if (currentTool === 'rect' && shapeStart && shapeEnd) {
+      // Create rectangle with calculated dimensions
+      const width = Math.abs(shapeEnd.x - shapeStart.x);
+      const height = Math.abs(shapeEnd.y - shapeStart.y);
+      const x = Math.min(shapeStart.x, shapeEnd.x);
+      const y = Math.min(shapeStart.y, shapeEnd.y);
+      
+      if (width > 5 && height > 5) {
+        const rectObject: RectObject = {
+          id: uuidv4(),
+          type: 'rect',
+          userId,
+          x,
+          y,
+          width,
+          height,
+          stroke: currentColor,
+          strokeWidth,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        addObject(rectObject);
+      }
+      setShapeStart(null);
+      setShapeEnd(null);
+    } else if (currentTool === 'ellipse' && shapeStart && shapeEnd) {
+      // Create ellipse with calculated dimensions
+      const radiusX = Math.abs(shapeEnd.x - shapeStart.x) / 2;
+      const radiusY = Math.abs(shapeEnd.y - shapeStart.y) / 2;
+      const x = (shapeStart.x + shapeEnd.x) / 2;
+      const y = (shapeStart.y + shapeEnd.y) / 2;
+      
+      if (radiusX > 5 && radiusY > 5) {
+        const ellipseObject: EllipseObject = {
+          id: uuidv4(),
+          type: 'ellipse',
+          userId,
+          x,
+          y,
+          radiusX,
+          radiusY,
+          stroke: currentColor,
+          strokeWidth,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        addObject(ellipseObject);
+      }
+      setShapeStart(null);
+      setShapeEnd(null);
     } else if (currentTool === 'text') {
       const text = prompt('Enter text:');
       if (text) {
@@ -476,6 +500,30 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
                   );
                 })()}
               </Group>
+            )}
+
+            {currentTool === 'rect' && isDrawing && shapeStart && shapeEnd && (
+              <Rect
+                x={Math.min(shapeStart.x, shapeEnd.x)}
+                y={Math.min(shapeStart.y, shapeEnd.y)}
+                width={Math.abs(shapeEnd.x - shapeStart.x)}
+                height={Math.abs(shapeEnd.y - shapeStart.y)}
+                stroke={currentColor}
+                strokeWidth={strokeWidth}
+                opacity={0.5}
+              />
+            )}
+
+            {currentTool === 'ellipse' && isDrawing && shapeStart && shapeEnd && (
+              <Ellipse
+                x={(shapeStart.x + shapeEnd.x) / 2}
+                y={(shapeStart.y + shapeEnd.y) / 2}
+                radiusX={Math.abs(shapeEnd.x - shapeStart.x) / 2}
+                radiusY={Math.abs(shapeEnd.y - shapeStart.y) / 2}
+                stroke={currentColor}
+                strokeWidth={strokeWidth}
+                opacity={0.5}
+              />
             )}
           </Layer>
         </Stage>
