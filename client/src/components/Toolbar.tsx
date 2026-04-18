@@ -12,10 +12,11 @@ interface ToolbarProps {
 }
 
 const TOOLS: { value: ToolType; label: string }[] = [
-  { value: 'select', label: '→' },
+  { value: 'select', label: '👆' },
   { value: 'pen', label: '✏️' },
   { value: 'rect', label: '▭' },
   { value: 'ellipse', label: '◯' },
+  { value: 'arrow', label: '→' },
   { value: 'text', label: 'T' },
   { value: 'sticky', label: '📝' },
   { value: 'eraser', label: '⌫' },

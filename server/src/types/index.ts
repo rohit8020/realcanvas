@@ -3,7 +3,7 @@
  */
 
 // Board object types
-export type ToolType = 'select' | 'pen' | 'rect' | 'ellipse' | 'text' | 'sticky' | 'eraser';
+export type ToolType = 'select' | 'pen' | 'rect' | 'ellipse' | 'text' | 'sticky' | 'eraser' | 'arrow';
 
 export interface BoardObjectBase {
   id: string;

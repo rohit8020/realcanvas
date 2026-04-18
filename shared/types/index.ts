@@ -3,7 +3,7 @@
  */
 
 // Board object types
-export type ToolType = 'select' | 'pen' | 'rect' | 'ellipse' | 'text' | 'sticky' | 'eraser';
+export type ToolType = 'select' | 'pen' | 'rect' | 'ellipse' | 'text' | 'sticky' | 'eraser' | 'arrow';
 
 export interface BoardObjectBase {
   id: string;
@@ -62,12 +62,23 @@ export interface StickyNoteObject extends BoardObjectBase {
   fontSize: number;
 }
 
+export interface ArrowObject extends BoardObjectBase {
+  type: 'arrow';
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  stroke: string;
+  strokeWidth: number;
+}
+
 export type BoardObject = 
   | LineObject 
   | RectObject 
   | EllipseObject 
   | TextObject 
-  | StickyNoteObject;
+  | StickyNoteObject 
+  | ArrowObject;
 
 // Room and user types
 export interface RoomUser {

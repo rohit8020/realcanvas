@@ -7,7 +7,7 @@ import { useUIStore } from '../stores/UIStore.js';
 import { emitCursorPosition, emitDrawingUpdate } from '../services/SocketService.js';
 import { Toolbar } from './Toolbar.js';
 import { RemoteCursors } from './RemoteCursors.js';
-import type { LineObject, RectObject, EllipseObject, TextObject, StickyNoteObject } from '../types/index.js';
+import type { LineObject, RectObject, EllipseObject, TextObject, StickyNoteObject, ArrowObject } from '../types/index.js';
 
 interface CanvasProps {
   roomId: string;
@@ -19,6 +19,8 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentLinePoints, setCurrentLinePoints] = useState<number[]>([]);
   const currentDrawingIdRef = useRef<string | null>(null);
+  const [arrowStart, setArrowStart] = useState<{ x: number; y: number } | null>(null);
+  const [arrowEnd, setArrowEnd] = useState<{ x: number; y: number } | null>(null);
 
   const objects = useBoardStore((state) => state.objects);
   const selectedObjectId = useBoardStore((state) => state.selectedObjectId);
@@ -68,6 +70,10 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
         updatedAt: Date.now(),
       };
       addObject(lineObject);
+    } else if (currentTool === 'arrow') {
+      // Start arrow drawing
+      setArrowStart({ x: pos.x, y: pos.y });
+      setArrowEnd({ x: pos.x, y: pos.y });
     }
   };
 
@@ -93,6 +99,9 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
           updatedAt: Date.now(),
         });
       }
+    } else if (currentTool === 'arrow' && arrowStart) {
+      // Update arrow end point while dragging
+      setArrowEnd({ x: pos.x, y: pos.y });
     }
   };
 
@@ -116,6 +125,24 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
         });
       }
       setCurrentLinePoints([]);
+    } else if (currentTool === 'arrow' && arrowStart && arrowEnd) {
+      // Create arrow object
+      const arrowObject: ArrowObject = {
+        id: uuidv4(),
+        type: 'arrow',
+        userId,
+        x1: arrowStart.x,
+        y1: arrowStart.y,
+        x2: arrowEnd.x,
+        y2: arrowEnd.y,
+        stroke: currentColor,
+        strokeWidth,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      addObject(arrowObject);
+      setArrowStart(null);
+      setArrowEnd(null);
     } else if (currentTool === 'rect') {
       const stage = e.target.getStage();
       if (!stage) return;
@@ -363,6 +390,42 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
                     />
                   </Group>
                 );
+              } else if (object.type === 'arrow') {
+                const arrow = object as ArrowObject;
+                const dx = arrow.x2 - arrow.x1;
+                const dy = arrow.y2 - arrow.y1;
+                const angle = Math.atan2(dy, dx);
+                const arrowHeadLength = 15;
+                
+                return (
+                  <Group key={object.id} onClick={() => handleObjectClick(object.id)}>
+                    {/* Arrow line */}
+                    <Line
+                      points={[arrow.x1, arrow.y1, arrow.x2, arrow.y2]}
+                      stroke={arrow.stroke}
+                      strokeWidth={arrow.strokeWidth}
+                      lineCap="round"
+                    />
+                    {/* Arrowhead */}
+                    <Line
+                      points={[
+                        arrow.x2,
+                        arrow.y2,
+                        arrow.x2 - arrowHeadLength * Math.cos(angle - Math.PI / 6),
+                        arrow.y2 - arrowHeadLength * Math.sin(angle - Math.PI / 6),
+                        arrow.x2 - arrowHeadLength * Math.cos(angle + Math.PI / 6),
+                        arrow.y2 - arrowHeadLength * Math.sin(angle + Math.PI / 6),
+                        arrow.x2,
+                        arrow.y2,
+                      ]}
+                      stroke={arrow.stroke}
+                      strokeWidth={arrow.strokeWidth}
+                      lineCap="round"
+                      lineJoin="round"
+                      fill={arrow.stroke}
+                    />
+                  </Group>
+                );
               }
               return null;
             })}
@@ -375,6 +438,44 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
                 lineCap="round"
                 lineJoin="round"
               />
+            )}
+
+            {currentTool === 'arrow' && isDrawing && arrowStart && arrowEnd && (
+              <Group>
+                {/* Arrow preview line */}
+                <Line
+                  points={[arrowStart.x, arrowStart.y, arrowEnd.x, arrowEnd.y]}
+                  stroke={currentColor}
+                  strokeWidth={strokeWidth}
+                  lineCap="round"
+                />
+                {/* Arrow preview head */}
+                {(() => {
+                  const dx = arrowEnd.x - arrowStart.x;
+                  const dy = arrowEnd.y - arrowStart.y;
+                  const angle = Math.atan2(dy, dx);
+                  const arrowHeadLength = 15;
+                  return (
+                    <Line
+                      points={[
+                        arrowEnd.x,
+                        arrowEnd.y,
+                        arrowEnd.x - arrowHeadLength * Math.cos(angle - Math.PI / 6),
+                        arrowEnd.y - arrowHeadLength * Math.sin(angle - Math.PI / 6),
+                        arrowEnd.x - arrowHeadLength * Math.cos(angle + Math.PI / 6),
+                        arrowEnd.y - arrowHeadLength * Math.sin(angle + Math.PI / 6),
+                        arrowEnd.x,
+                        arrowEnd.y,
+                      ]}
+                      stroke={currentColor}
+                      strokeWidth={strokeWidth}
+                      lineCap="round"
+                      lineJoin="round"
+                      fill={currentColor}
+                    />
+                  );
+                })()}
+              </Group>
             )}
           </Layer>
         </Stage>
