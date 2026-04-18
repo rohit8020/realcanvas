@@ -26,14 +26,13 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState<string>('');
   const [editingTextPos, setEditingTextPos] = useState<{ x: number; y: number } | null>(null);
-  const [textBoxWidth, setTextBoxWidth] = useState<number>(300);
-  const [textBoxHeight, setTextBoxHeight] = useState<number>(100);
+  const [textboxWidth, setTextboxWidth] = useState<number>(300);
+  const [textboxHeight, setTextboxHeight] = useState<number>(100);
   const [isResizing, setIsResizing] = useState(false);
-  const [resizeType, setResizeType] = useState<'width' | 'height' | null>(null);
-  const [resizeStartPos, setResizeStartPos] = useState<{ x: number; y: number } | null>(null);
-  const [resizeStartDim, setResizeStartDim] = useState<{ width: number; height: number } | null>(null);
+  const [resizeStart, setResizeStart] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [resizeDirection, setResizeDirection] = useState<string | null>(null);
+  const [cursorStyle, setCursorStyle] = useState<string>('auto');
   const textInputRef = useRef<HTMLTextAreaElement>(null);
-  const borderSize = 8;
 
   const objects = useBoardStore((state) => state.objects);
   const selectedObjectId = useBoardStore((state) => state.selectedObjectId);
@@ -219,8 +218,6 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
       setEditingTextId(textId);
       setEditingText('');
       setEditingTextPos({ x: pos.x, y: pos.y });
-      setTextBoxWidth(300);
-      setTextBoxHeight(100);
       
       // Focus textarea immediately
       setTimeout(() => {
@@ -232,8 +229,6 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
       setEditingTextId(stickyId);
       setEditingText('');
       setEditingTextPos({ x: pos.x, y: pos.y });
-      setTextBoxWidth(150);
-      setTextBoxHeight(150);
       
       // Focus textarea immediately
       setTimeout(() => {
@@ -252,8 +247,6 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
         setEditingTextId(objectId);
         setEditingText(textObj.text);
         setEditingTextPos({ x: textObj.x, y: textObj.y });
-        setTextBoxWidth(300);
-        setTextBoxHeight(100);
         setTimeout(() => {
           textInputRef.current?.focus();
         }, 0);
@@ -321,85 +314,89 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
     setEditingTextPos(null);
   };
 
-  const handleTextBoxMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!editingTextPos || !textInputRef.current) return;
-    
-    const rect = textInputRef.current.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    
-    let type: 'width' | 'height' | null = null;
-    
-    // Check if on right border (y-axis) for width resize
-    if (mouseX > rect.width - borderSize) {
-      type = 'width';
-    }
-    // Check if on bottom border (x-axis) for height resize
-    else if (mouseY > rect.height - borderSize) {
-      type = 'height';
-    }
-    
-    if (type) {
-      setIsResizing(true);
-      setResizeType(type);
-      setResizeStartPos({ x: e.clientX, y: e.clientY });
-      setResizeStartDim({ width: textBoxWidth, height: textBoxHeight });
-      e.preventDefault();
-    }
-  };
-
-  const handleTextBoxMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleTextboxMouseMove = (e: React.MouseEvent<HTMLTextAreaElement>) => {
     if (!textInputRef.current) return;
     
     const rect = textInputRef.current.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    
-    let cursor = 'default';
-    
-    if (mouseX > rect.width - borderSize && mouseY <= rect.height - borderSize) {
-      cursor = 'ew-resize'; // width resize
-    } else if (mouseY > rect.height - borderSize && mouseX <= rect.width - borderSize) {
-      cursor = 'ns-resize'; // height resize
-    } else if (mouseX > rect.width - borderSize && mouseY > rect.height - borderSize) {
-      cursor = 'nwse-resize'; // both
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const borderSize = 8;
+
+    let newCursor = 'auto';
+    let direction = null;
+
+    // Check if near borders
+    const nearTop = y < borderSize;
+    const nearBottom = y > rect.height - borderSize;
+    const nearLeft = x < borderSize;
+    const nearRight = x > rect.width - borderSize;
+
+    if ((nearTop || nearBottom) && (nearLeft || nearRight)) {
+      newCursor = nearTop && nearLeft ? 'nwse-resize' : 'nesw-resize';
+      direction = 'diagonal';
+    } else if (nearTop || nearBottom) {
+      newCursor = 'ns-resize';
+      direction = 'vertical';
+    } else if (nearLeft || nearRight) {
+      newCursor = 'ew-resize';
+      direction = 'horizontal';
     }
-    
-    textInputRef.current.style.cursor = cursor;
+
+    setCursorStyle(newCursor);
+    setResizeDirection(direction);
   };
 
-  // Global mouse move handler for resizing
+  const handleTextboxMouseDown = (e: React.MouseEvent<HTMLTextAreaElement>) => {
+    if (!resizeDirection) return;
+
+    e.preventDefault();
+    setIsResizing(true);
+    setResizeStart({
+      x: e.clientX,
+      y: e.clientY,
+      width: textboxWidth,
+      height: textboxHeight,
+    });
+  };
+
+  const handleDocumentMouseMove = (e: MouseEvent) => {
+    if (!isResizing || !resizeStart) return;
+
+    const deltaX = e.clientX - resizeStart.x;
+    const deltaY = e.clientY - resizeStart.y;
+
+    let newWidth = resizeStart.width;
+    let newHeight = resizeStart.height;
+
+    if (resizeDirection === 'horizontal') {
+      newWidth = Math.max(100, resizeStart.width + deltaX);
+    } else if (resizeDirection === 'vertical') {
+      newHeight = Math.max(50, resizeStart.height + deltaY);
+    } else if (resizeDirection === 'diagonal') {
+      newWidth = Math.max(100, resizeStart.width + deltaX);
+      newHeight = Math.max(50, resizeStart.height + deltaY);
+    }
+
+    setTextboxWidth(newWidth);
+    setTextboxHeight(newHeight);
+  };
+
+  const handleDocumentMouseUp = () => {
+    setIsResizing(false);
+    setResizeStart(null);
+  };
+
+  // Add/remove resize event listeners
   useEffect(() => {
-    if (!isResizing || !resizeStartPos || !resizeStartDim) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const deltaX = e.clientX - resizeStartPos.x;
-      const deltaY = e.clientY - resizeStartPos.y;
-
-      if (resizeType === 'width') {
-        const newWidth = Math.max(100, resizeStartDim.width + deltaX);
-        setTextBoxWidth(newWidth);
-      } else if (resizeType === 'height') {
-        const newHeight = Math.max(50, resizeStartDim.height + deltaY);
-        setTextBoxHeight(newHeight);
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-      setResizeType(null);
-      setResizeStartPos(null);
-      setResizeStartDim(null);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isResizing, resizeStartPos, resizeStartDim, resizeType]);
+    if (isResizing) {
+      document.addEventListener('mousemove', handleDocumentMouseMove);
+      document.addEventListener('mouseup', handleDocumentMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleDocumentMouseMove);
+        document.removeEventListener('mouseup', handleDocumentMouseUp);
+      };
+    }
+  }, [isResizing, resizeStart, resizeDirection]);
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
@@ -684,55 +681,46 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
         <RemoteCursors width={stageWidth} height={stageHeight} />
         
         {editingTextId && editingTextPos && (
-          <div
-            onMouseDown={handleTextBoxMouseDown}
-            onMouseMove={handleTextBoxMouseMove}
+          <textarea
+            ref={textInputRef}
+            value={editingText}
+            onChange={(e) => setEditingText(e.target.value)}
+            onBlur={finishTextEditing}
+            onMouseMove={handleTextboxMouseMove}
+            onMouseDown={handleTextboxMouseDown}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                finishTextEditing();
+              } else if (e.key === 'Escape') {
+                setEditingTextId(null);
+                setEditingText('');
+                setEditingTextPos(null);
+                setTextboxWidth(300);
+                setTextboxHeight(100);
+              }
+            }}
             style={{
               position: 'absolute',
               top: editingTextPos.y,
               left: editingTextPos.x,
-              width: textBoxWidth,
-              height: textBoxHeight,
+              width: `${textboxWidth}px`,
+              height: `${textboxHeight}px`,
+              fontSize: `${fontSize}px`,
+              fontFamily: 'Arial',
+              padding: '8px',
+              border: '2px solid #4ECDC4',
+              borderRadius: '4px',
               zIndex: 1000,
+              resize: 'none',
+              backgroundColor: 'white',
+              color: currentColor,
+              cursor: cursorStyle,
+              whiteSpace: 'pre-wrap',
+              wordWrap: 'break-word',
+              overflow: 'auto',
             }}
-          >
-            <textarea
-              ref={textInputRef}
-              value={editingText}
-              onChange={(e) => setEditingText(e.target.value)}
-              onBlur={finishTextEditing}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                  finishTextEditing();
-                } else if (e.key === 'Escape') {
-                  setEditingTextId(null);
-                  setEditingText('');
-                  setEditingTextPos(null);
-                }
-              }}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                fontSize: `${fontSize}px`,
-                fontFamily: 'Arial',
-                padding: '4px 8px',
-                border: '2px solid #4ECDC4',
-                borderRadius: '4px',
-                zIndex: 1000,
-                resize: 'none',
-                boxSizing: 'border-box',
-                backgroundColor: 'white',
-                color: currentColor,
-                overflowWrap: 'break-word',
-                whiteSpace: 'pre-wrap',
-                wordWrap: 'break-word',
-              }}
-              autoFocus
-            />
-          </div>
+            autoFocus
+          />
         )}
       </div>
     </>
