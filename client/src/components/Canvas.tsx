@@ -4,7 +4,7 @@ import Konva from 'konva';
 import { v4 as uuidv4 } from 'uuid';
 import { useBoardStore } from '../stores/BoardStore.js';
 import { useUIStore } from '../stores/UIStore.js';
-import { emitCursorPosition, emitDrawingUpdate } from '../services/SocketService.js';
+import { emitCursorPosition, emitDrawingUpdate, getSocket } from '../services/SocketService.js';
 import { Toolbar } from './Toolbar.js';
 import { RemoteCursors } from './RemoteCursors.js';
 import type { LineObject, RectObject, EllipseObject, TextObject, StickyNoteObject, ArrowObject } from '../types/index.js';
@@ -23,6 +23,17 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
   const [arrowEnd, setArrowEnd] = useState<{ x: number; y: number } | null>(null);
   const [shapeStart, setShapeStart] = useState<{ x: number; y: number } | null>(null);
   const [shapeEnd, setShapeEnd] = useState<{ x: number; y: number } | null>(null);
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState<string>('');
+  const [editingTextPos, setEditingTextPos] = useState<{ x: number; y: number } | null>(null);
+  const [textBoxWidth, setTextBoxWidth] = useState<number>(300);
+  const [textBoxHeight, setTextBoxHeight] = useState<number>(100);
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeType, setResizeType] = useState<'width' | 'height' | null>(null);
+  const [resizeStartPos, setResizeStartPos] = useState<{ x: number; y: number } | null>(null);
+  const [resizeStartDim, setResizeStartDim] = useState<{ width: number; height: number } | null>(null);
+  const textInputRef = useRef<HTMLTextAreaElement>(null);
+  const borderSize = 8;
 
   const objects = useBoardStore((state) => state.objects);
   const selectedObjectId = useBoardStore((state) => state.selectedObjectId);
@@ -203,50 +214,192 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
       setShapeStart(null);
       setShapeEnd(null);
     } else if (currentTool === 'text') {
-      const text = prompt('Enter text:');
-      if (text) {
-        const textObject: TextObject = {
-          id: uuidv4(),
-          type: 'text',
-          userId,
-          x: pos.x,
-          y: pos.y,
-          text,
-          fontSize,
-          fontFamily: 'Arial',
-          fill: currentColor,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-        addObject(textObject);
-      }
+      // Start text editing directly on canvas
+      const textId = uuidv4();
+      setEditingTextId(textId);
+      setEditingText('');
+      setEditingTextPos({ x: pos.x, y: pos.y });
+      setTextBoxWidth(300);
+      setTextBoxHeight(100);
+      
+      // Focus textarea immediately
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 0);
     } else if (currentTool === 'sticky') {
-      const text = prompt('Enter note:');
-      if (text) {
-        const stickyObject: StickyNoteObject = {
-          id: uuidv4(),
-          type: 'sticky',
-          userId,
-          x: pos.x,
-          y: pos.y,
-          width: 150,
-          height: 150,
-          text,
-          backgroundColor: '#FFF9C4',
-          fontSize: 12,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-        addObject(stickyObject);
-      }
+      // Start sticky note editing on canvas
+      const stickyId = uuidv4();
+      setEditingTextId(stickyId);
+      setEditingText('');
+      setEditingTextPos({ x: pos.x, y: pos.y });
+      setTextBoxWidth(150);
+      setTextBoxHeight(150);
+      
+      // Focus textarea immediately
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 0);
     }
   };
 
   const handleObjectClick = (objectId: string) => {
     if (currentTool === 'select') {
       selectObject(objectId);
+    } else if (currentTool === 'text') {
+      // Enable editing of existing text
+      const textObj = objects.find(obj => obj.id === objectId) as TextObject | undefined;
+      if (textObj) {
+        setEditingTextId(objectId);
+        setEditingText(textObj.text);
+        setEditingTextPos({ x: textObj.x, y: textObj.y });
+        setTextBoxWidth(300);
+        setTextBoxHeight(100);
+        setTimeout(() => {
+          textInputRef.current?.focus();
+        }, 0);
+      }
     }
   };
+
+  const finishTextEditing = () => {
+    if (editingTextId && editingTextPos && editingText.trim() && userId) {
+      // Check if editing existing object
+      const existingObj = objects.find(obj => obj.id === editingTextId);
+      
+      if (existingObj) {
+        // Update existing object
+        const updatePayload = {
+          text: editingText,
+          updatedAt: Date.now(),
+        };
+        const socket = getSocket();
+        if (socket) {
+          socket.emit('board:object:update', {
+            objectId: editingTextId,
+            updates: updatePayload,
+          });
+        }
+      } else {
+        // Create new object based on current tool
+        if (currentTool === 'sticky') {
+          const stickyObject: StickyNoteObject = {
+            id: editingTextId,
+            type: 'sticky',
+            userId,
+            x: editingTextPos.x,
+            y: editingTextPos.y,
+            width: 150,
+            height: 150,
+            text: editingText,
+            backgroundColor: '#FFF9C4',
+            fontSize: 12,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+          addObject(stickyObject);
+        } else {
+          // Default to text object
+          const textObject: TextObject = {
+            id: editingTextId,
+            type: 'text',
+            userId,
+            x: editingTextPos.x,
+            y: editingTextPos.y,
+            text: editingText,
+            fontSize,
+            fontFamily: 'Arial',
+            fill: currentColor,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+          addObject(textObject);
+        }
+      }
+    }
+    setEditingTextId(null);
+    setEditingText('');
+    setEditingTextPos(null);
+  };
+
+  const handleTextBoxMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!editingTextPos || !textInputRef.current) return;
+    
+    const rect = textInputRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    let type: 'width' | 'height' | null = null;
+    
+    // Check if on right border (y-axis) for width resize
+    if (mouseX > rect.width - borderSize) {
+      type = 'width';
+    }
+    // Check if on bottom border (x-axis) for height resize
+    else if (mouseY > rect.height - borderSize) {
+      type = 'height';
+    }
+    
+    if (type) {
+      setIsResizing(true);
+      setResizeType(type);
+      setResizeStartPos({ x: e.clientX, y: e.clientY });
+      setResizeStartDim({ width: textBoxWidth, height: textBoxHeight });
+      e.preventDefault();
+    }
+  };
+
+  const handleTextBoxMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!textInputRef.current) return;
+    
+    const rect = textInputRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    let cursor = 'default';
+    
+    if (mouseX > rect.width - borderSize && mouseY <= rect.height - borderSize) {
+      cursor = 'ew-resize'; // width resize
+    } else if (mouseY > rect.height - borderSize && mouseX <= rect.width - borderSize) {
+      cursor = 'ns-resize'; // height resize
+    } else if (mouseX > rect.width - borderSize && mouseY > rect.height - borderSize) {
+      cursor = 'nwse-resize'; // both
+    }
+    
+    textInputRef.current.style.cursor = cursor;
+  };
+
+  // Global mouse move handler for resizing
+  useEffect(() => {
+    if (!isResizing || !resizeStartPos || !resizeStartDim) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - resizeStartPos.x;
+      const deltaY = e.clientY - resizeStartPos.y;
+
+      if (resizeType === 'width') {
+        const newWidth = Math.max(100, resizeStartDim.width + deltaX);
+        setTextBoxWidth(newWidth);
+      } else if (resizeType === 'height') {
+        const newHeight = Math.max(50, resizeStartDim.height + deltaY);
+        setTextBoxHeight(newHeight);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      setResizeType(null);
+      setResizeStartPos(null);
+      setResizeStartDim(null);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, resizeStartPos, resizeStartDim, resizeType]);
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
@@ -529,6 +682,58 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
         </Stage>
 
         <RemoteCursors width={stageWidth} height={stageHeight} />
+        
+        {editingTextId && editingTextPos && (
+          <div
+            onMouseDown={handleTextBoxMouseDown}
+            onMouseMove={handleTextBoxMouseMove}
+            style={{
+              position: 'absolute',
+              top: editingTextPos.y,
+              left: editingTextPos.x,
+              width: textBoxWidth,
+              height: textBoxHeight,
+              zIndex: 1000,
+            }}
+          >
+            <textarea
+              ref={textInputRef}
+              value={editingText}
+              onChange={(e) => setEditingText(e.target.value)}
+              onBlur={finishTextEditing}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                  finishTextEditing();
+                } else if (e.key === 'Escape') {
+                  setEditingTextId(null);
+                  setEditingText('');
+                  setEditingTextPos(null);
+                }
+              }}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                fontSize: `${fontSize}px`,
+                fontFamily: 'Arial',
+                padding: '4px 8px',
+                border: '2px solid #4ECDC4',
+                borderRadius: '4px',
+                zIndex: 1000,
+                resize: 'none',
+                boxSizing: 'border-box',
+                backgroundColor: 'white',
+                color: currentColor,
+                overflowWrap: 'break-word',
+                whiteSpace: 'pre-wrap',
+                wordWrap: 'break-word',
+              }}
+              autoFocus
+            />
+          </div>
+        )}
       </div>
     </>
   );
