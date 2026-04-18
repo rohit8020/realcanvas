@@ -1,0 +1,61 @@
+services:
+  mongo:
+    image: mongo:latest
+    platform: linux/arm64
+    container_name: realcanvas-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: realcanvas
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - realcanvas-network
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: realcanvas-server
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      MONGO_URI: mongodb://mongo:27017/realcanvas
+      CLIENT_URL: http://localhost:5173
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - ./server/src:/app/server/src
+    networks:
+      - realcanvas-network
+    restart: unless-stopped
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    container_name: realcanvas-client
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:4000
+    depends_on:
+      - server
+    networks:
+      - realcanvas-network
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+
+networks:
+  realcanvas-network:
+    driver: bridge

@@ -1,0 +1,21 @@
+{
+  "name": "realcanvas",
+  "version": "1.0.0",
+  "description": "RealCanvas - Collaborative Whiteboard MERN Application",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces",
+    "build": "npm run build --workspaces",
+    "start": "npm start --workspaces",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
