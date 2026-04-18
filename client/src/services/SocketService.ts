@@ -14,7 +14,9 @@ import type {
 
 let socket: Socket | null = null;
 let cursorThrottleTime = 0;
-const CURSOR_THROTTLE_MS = 50;
+let drawingThrottleTime = 0;
+const CURSOR_THROTTLE_MS = 16; // ~60fps for real-time cursor tracking
+const DRAWING_THROTTLE_MS = 16; // ~60fps for real-time drawing
 
 export function initializeSocket(apiUrl: string): Socket {
   if (socket) {
@@ -133,6 +135,22 @@ export function emitCursorPosition(x: number, y: number) {
   } else {
     console.warn('[SocketService] Missing userId or userName:', { userId, userName });
   }
+}
+
+export function emitDrawingUpdate(objectId: string, updates: any) {
+  if (!socket) {
+    console.warn('[SocketService] Socket not initialized, cannot emit drawing');
+    return;
+  }
+
+  const now = Date.now();
+  if (now - drawingThrottleTime < DRAWING_THROTTLE_MS) return;
+
+  drawingThrottleTime = now;
+  socket.emit('board:object:update', {
+    objectId,
+    updates,
+  });
 }
 
 export function getSocket(): Socket | null {

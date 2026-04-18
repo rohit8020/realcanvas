@@ -4,7 +4,7 @@ import Konva from 'konva';
 import { v4 as uuidv4 } from 'uuid';
 import { useBoardStore } from '../stores/BoardStore.js';
 import { useUIStore } from '../stores/UIStore.js';
-import { emitCursorPosition } from '../services/SocketService.js';
+import { emitCursorPosition, emitDrawingUpdate } from '../services/SocketService.js';
 import { Toolbar } from './Toolbar.js';
 import { RemoteCursors } from './RemoteCursors.js';
 import type { LineObject, RectObject, EllipseObject, TextObject, StickyNoteObject } from '../types/index.js';
@@ -18,6 +18,7 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
   const layerRef = useRef<Konva.Layer>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentLinePoints, setCurrentLinePoints] = useState<number[]>([]);
+  const currentDrawingIdRef = useRef<string | null>(null);
 
   const objects = useBoardStore((state) => state.objects);
   const selectedObjectId = useBoardStore((state) => state.selectedObjectId);
@@ -50,7 +51,23 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
     setIsDrawing(true);
 
     if (currentTool === 'pen') {
+      // Create drawing ID and start a new line
+      const lineId = uuidv4();
+      currentDrawingIdRef.current = lineId;
       setCurrentLinePoints([pos.x, pos.y]);
+      
+      // Create the initial line object and emit it
+      const lineObject: LineObject = {
+        id: lineId,
+        type: 'line',
+        userId,
+        points: [pos.x, pos.y],
+        stroke: currentColor,
+        strokeWidth,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      addObject(lineObject);
     }
   };
 
@@ -66,7 +83,16 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
     if (!isDrawing || !userId) return;
 
     if (currentTool === 'pen') {
-      setCurrentLinePoints([...currentLinePoints, pos.x, pos.y]);
+      const newPoints = [...currentLinePoints, pos.x, pos.y];
+      setCurrentLinePoints(newPoints);
+      
+      // Emit real-time drawing update
+      if (currentDrawingIdRef.current) {
+        emitDrawingUpdate(currentDrawingIdRef.current, {
+          points: newPoints,
+          updatedAt: Date.now(),
+        });
+      }
     }
   };
 
@@ -80,19 +106,15 @@ export const Canvas: React.FC<CanvasProps> = ({ roomId }) => {
     if (!pos) return;
 
     setIsDrawing(false);
+    currentDrawingIdRef.current = null;
 
     if (currentTool === 'pen' && currentLinePoints.length > 2) {
-      const lineObject: LineObject = {
-        id: uuidv4(),
-        type: 'line',
-        userId,
-        points: currentLinePoints,
-        stroke: currentColor,
-        strokeWidth,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      addObject(lineObject);
+      // Final update - drawing is complete
+      if (currentDrawingIdRef.current) {
+        emitDrawingUpdate(currentDrawingIdRef.current, {
+          updatedAt: Date.now(),
+        });
+      }
       setCurrentLinePoints([]);
     } else if (currentTool === 'rect') {
       const stage = e.target.getStage();
